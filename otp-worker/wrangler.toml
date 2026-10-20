@@ -1,0 +1,8 @@
+name = "homer-otp"
+main = "src/index.js"
+compatibility_date = "2026-10-18"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "OUTBOX"
+id = "CHANGE_ME_KV_NAMESPACE_ID"

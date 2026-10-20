@@ -1,0 +1,7 @@
+{
+  "name": "homer-native",
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "installCommand": "",
+  "nodeVersion": "22"
+}
