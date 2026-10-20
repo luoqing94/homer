@@ -1,6 +1,22 @@
-const ALLOWED = new Set([
-  'you@example.com',
-]);
+function parseAllowedEmails(raw) {
+  const set = new Set(
+    String(raw || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (set.size === 0) set.add('you@example.com');
+  return set;
+}
+
+function allowedEmails(env) {
+  const fromEnv = env && env.ALLOWED_EMAILS;
+  const fromProc = typeof process !== 'undefined' && process.env ? process.env.ALLOWED_EMAILS : undefined;
+  const raw = fromEnv != null && String(fromEnv).trim() !== ''
+    ? fromEnv
+    : (fromProc != null && String(fromProc).trim() !== '' ? fromProc : 'you@example.com');
+  return parseAllowedEmails(raw);
+}
 
 async function writeOutbox(env, email, code) {
   if (!env.OUTBOX) return null;
@@ -99,7 +115,7 @@ export default {
     }
     const email = String(body.email || '').trim().toLowerCase();
     const code = String(body.code || '').trim();
-    if (!ALLOWED.has(email) || !/^\d{6}$/.test(code)) {
+    if (!allowedEmails(env).has(email) || !/^\d{6}$/.test(code)) {
       return Response.json({ ok: false, error: 'invalid' }, { status: 400 });
     }
 

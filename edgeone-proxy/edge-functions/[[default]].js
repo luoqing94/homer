@@ -1,25 +1,65 @@
-const ORIGIN_HOST = 'homer-home-5b7.pages.dev';
-const ORIGIN = `https://${ORIGIN_HOST}`;
-
-const CF_ACCESS_CLIENT_ID = 'CHANGE_ME_CF_ACCESS_CLIENT_ID';
-const CF_ACCESS_CLIENT_SECRET = 'CHANGE_ME_CF_ACCESS_CLIENT_SECRET';
-
-const GATE_PASSWORD = 'CHANGE_ME_GATE_PASSWORD';
-const ALLOWED_EMAILS = new Set([
-  'you@example.com',
-]);
-const SESSION_SECRET = 'CHANGE_ME_SESSION_SECRET';
 const SESSION_TTL_SEC = 7 * 24 * 3600;
 const OTP_TTL_SEC = 10 * 60;
 const COOKIE_NAME = 'homer_gate';
 const OTP_COOKIE = 'homer_otp';
-const OTP_MAILER_URL = 'CHANGE_ME_OTP_MAILER_URL';
-const OTP_MAILER_SECRET = 'CHANGE_ME_OTP_MAILER_SECRET';
+const CONFIG_HOST_PLACEHOLDER = 'CHANGE_ME.example.com';
 
 const HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailers', 'transfer-encoding', 'upgrade', 'host', 'content-length',
 ]);
+
+function readEnv(env, key, fallback) {
+  const fromCtx = env && env[key];
+  const fromProc = typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+  const raw = fromCtx != null && String(fromCtx).trim() !== '' ? fromCtx : fromProc;
+  if (raw == null || String(raw).trim() === '') return fallback;
+  return String(raw).trim();
+}
+
+function parseAllowedEmails(raw) {
+  const set = new Set(
+    String(raw || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (set.size === 0) set.add('you@example.com');
+  return set;
+}
+
+function hostnameOnly(raw) {
+  if (!raw) return '';
+  let s = String(raw).trim();
+  s = s.replace(/^https?:\/\//i, '');
+  s = s.split('/')[0];
+  return s.trim();
+}
+
+function runtimeConfig(env) {
+  const originHost = hostnameOnly(readEnv(env, 'ORIGIN_HOST', 'CHANGE_ME.pages.dev'));
+  return {
+    originHost,
+    origin: `https://${originHost}`,
+    cfAccessClientId: readEnv(env, 'CF_ACCESS_CLIENT_ID', 'CHANGE_ME_CF_ACCESS_CLIENT_ID'),
+    cfAccessClientSecret: readEnv(env, 'CF_ACCESS_CLIENT_SECRET', 'CHANGE_ME_CF_ACCESS_CLIENT_SECRET'),
+    gatePassword: readEnv(env, 'GATE_PASSWORD', 'CHANGE_ME_GATE_PASSWORD'),
+    sessionSecret: readEnv(env, 'SESSION_SECRET', 'CHANGE_ME_SESSION_SECRET'),
+    otpMailerUrl: readEnv(env, 'OTP_MAILER_URL', 'CHANGE_ME_OTP_MAILER_URL'),
+    otpMailerSecret: readEnv(env, 'OTP_MAILER_SECRET', 'CHANGE_ME_OTP_MAILER_SECRET'),
+    allowedEmails: parseAllowedEmails(readEnv(env, 'ALLOWED_EMAILS', 'you@example.com')),
+    publicZone: hostnameOnly(readEnv(env, 'PUBLIC_ZONE', '')),
+  };
+}
+
+function isConfigYmlPath(path) {
+  return /\/assets\/config(-demo)?\.ya?ml$/i.test(path);
+}
+
+function rewriteConfigHosts(text, publicZone) {
+  if (!publicZone) return text;
+  return text.split(CONFIG_HOST_PLACEHOLDER).join(publicZone);
+}
 
 function b64url(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -37,10 +77,10 @@ function fromB64url(s) {
   return out;
 }
 
-async function hmacSign(payload) {
+async function hmacSign(payload, sessionSecret) {
   const key = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(SESSION_SECRET),
+    new TextEncoder().encode(sessionSecret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -49,17 +89,17 @@ async function hmacSign(payload) {
   return b64url(sig);
 }
 
-async function makeToken(data, ttlSec) {
+async function makeToken(data, ttlSec, sessionSecret) {
   const body = { ...data, exp: Math.floor(Date.now() / 1000) + ttlSec };
   const payload = b64url(new TextEncoder().encode(JSON.stringify(body)));
-  const sig = await hmacSign(payload);
+  const sig = await hmacSign(payload, sessionSecret);
   return `${payload}.${sig}`;
 }
 
-async function readToken(token) {
+async function readToken(token, sessionSecret) {
   if (!token || !token.includes('.')) return null;
   const [payload, sig] = token.split('.');
-  const expect = await hmacSign(payload);
+  const expect = await hmacSign(payload, sessionSecret);
   if (sig !== expect) return null;
   try {
     const body = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
@@ -201,18 +241,20 @@ const LOGOUT_SNIPPET = `<a href="/__auth/logout" id="homer-gate-logout" data-tur
 })();
 </script>`;
 
-async function proxyOrigin(request, inbound) {
-  const targetUrl = ORIGIN + inbound.pathname + inbound.search;
+async function proxyOrigin(request, inbound, cfg) {
+  const originHost = cfg.originHost;
+  const origin = cfg.origin;
+  const targetUrl = origin + inbound.pathname + inbound.search;
   const headers = new Headers();
   for (const [k, v] of request.headers) {
     if (HOP.has(k.toLowerCase())) continue;
     headers.append(k, v);
   }
-  headers.set('host', ORIGIN_HOST);
+  headers.set('host', originHost);
   headers.set('x-forwarded-host', inbound.host);
   headers.set('x-forwarded-proto', inbound.protocol.replace(':', ''));
-  headers.set('CF-Access-Client-Id', CF_ACCESS_CLIENT_ID);
-  headers.set('CF-Access-Client-Secret', CF_ACCESS_CLIENT_SECRET);
+  headers.set('CF-Access-Client-Id', cfg.cfAccessClientId);
+  headers.set('CF-Access-Client-Secret', cfg.cfAccessClientSecret);
   headers.set('accept-encoding', 'identity');
   if (!headers.has('x-forwarded-for')) {
     const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-real-ip') || '';
@@ -234,15 +276,21 @@ async function proxyOrigin(request, inbound) {
     const lk = k.toLowerCase();
     if (lk === 'transfer-encoding' || lk === 'content-encoding' || lk === 'content-length') continue;
     if (lk === 'location' || lk === 'set-cookie') {
-      out.append(k, v.split(ORIGIN).join(inbound.origin)
-        .split(`https://${ORIGIN_HOST}`).join(inbound.origin)
-        .split(ORIGIN_HOST).join(inbound.host));
+      out.append(k, v.split(origin).join(inbound.origin)
+        .split(`https://${originHost}`).join(inbound.origin)
+        .split(originHost).join(inbound.host));
       continue;
     }
     out.append(k, v);
   }
   out.set('cache-control', 'private, no-store');
   out.set('vary', 'Cookie');
+
+  if (method === 'GET' && upstream.status === 200 && isConfigYmlPath(inbound.pathname)) {
+    const text = rewriteConfigHosts(await upstream.text(), cfg.publicZone);
+    if (!out.has('content-type')) out.set('content-type', 'text/yaml; charset=utf-8');
+    return new Response(text, { status: 200, headers: out });
+  }
 
   const ctype = (upstream.headers.get('content-type') || '').toLowerCase();
   const wantLogout = method === 'GET' && upstream.status === 200 && ctype.includes('text/html')
@@ -282,6 +330,7 @@ function redirectHome(sessionToken) {
 export default async function onRequest(context) {
   const { request } = context;
   const inbound = new URL(request.url);
+  const cfg = runtimeConfig(context.env);
 
   if (inbound.pathname.startsWith('/.well-known/')) {
     try {
@@ -303,23 +352,23 @@ export default async function onRequest(context) {
 
   if (inbound.pathname === '/__auth/password' && request.method === 'POST') {
     const form = await parseForm(request);
-    if (String(form.password || '') !== GATE_PASSWORD) return loginPage('口令错误', 'password');
-    return redirectHome(await makeToken({ typ: 'session', via: 'password' }, SESSION_TTL_SEC));
+    if (String(form.password || '') !== cfg.gatePassword) return loginPage('口令错误', 'password');
+    return redirectHome(await makeToken({ typ: 'session', via: 'password' }, SESSION_TTL_SEC, cfg.sessionSecret));
   }
 
   if (inbound.pathname === '/__auth/otp/send' && request.method === 'POST') {
     const form = await parseForm(request);
     const email = String(form.email || '').trim().toLowerCase();
-    if (!ALLOWED_EMAILS.has(email)) return loginPage('该邮箱不在白名单', 'email', email);
+    if (!cfg.allowedEmails.has(email)) return loginPage('该邮箱不在白名单', 'email', email);
     const code = randomOtp();
     const codeHash = await sha256Hex(code + ':' + email);
-    const otpTok = await makeToken({ typ: 'otp', email, codeHash }, OTP_TTL_SEC);
+    const otpTok = await makeToken({ typ: 'otp', email, codeHash }, OTP_TTL_SEC, cfg.sessionSecret);
     let sendOk = false;
     let detail = '';
     try {
-      const resp = await fetch(OTP_MAILER_URL, {
+      const resp = await fetch(cfg.otpMailerUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-homer-otp-secret': OTP_MAILER_SECRET },
+        headers: { 'content-type': 'application/json', 'x-homer-otp-secret': cfg.otpMailerSecret },
         body: JSON.stringify({ email, code }),
       });
       const j = await resp.json().catch(() => ({}));
@@ -344,12 +393,12 @@ export default async function onRequest(context) {
     const form = await parseForm(request);
     const email = String(form.email || '').trim().toLowerCase();
     const code = String(form.code || '').trim();
-    if (!ALLOWED_EMAILS.has(email) || !/^\d{6}$/.test(code)) return loginPage('邮箱或验证码无效', 'email', email);
-    const pending = await readToken(getCookie(request, OTP_COOKIE));
+    if (!cfg.allowedEmails.has(email) || !/^\d{6}$/.test(code)) return loginPage('邮箱或验证码无效', 'email', email);
+    const pending = await readToken(getCookie(request, OTP_COOKIE), cfg.sessionSecret);
     if (!pending || pending.typ !== 'otp' || pending.email !== email) return loginPage('请先发送验证码', 'email', email);
     const codeHash = await sha256Hex(code + ':' + email);
     if (codeHash !== pending.codeHash) return loginPage('验证码错误', 'email', email);
-    const token = await makeToken({ typ: 'session', via: 'otp', email }, SESSION_TTL_SEC);
+    const token = await makeToken({ typ: 'session', via: 'otp', email }, SESSION_TTL_SEC, cfg.sessionSecret);
     const headers = new Headers({ location: '/', 'cache-control': 'no-store' });
     headers.append('set-cookie', setCookie(COOKIE_NAME, token, SESSION_TTL_SEC));
     headers.append('set-cookie', clearCookie(OTP_COOKIE));
@@ -360,7 +409,7 @@ export default async function onRequest(context) {
     return loginPage('', 'email');
   }
 
-  const sessionTok = await readToken(getCookie(request, COOKIE_NAME));
+  const sessionTok = await readToken(getCookie(request, COOKIE_NAME), cfg.sessionSecret);
   if (!sessionTok || sessionTok.typ !== 'session') {
     const accept = (request.headers.get('accept') || '').toLowerCase();
     const path = inbound.pathname;
@@ -380,5 +429,5 @@ export default async function onRequest(context) {
     return loginPage('', 'email');
   }
 
-  return proxyOrigin(request, inbound);
+  return proxyOrigin(request, inbound, cfg);
 }
