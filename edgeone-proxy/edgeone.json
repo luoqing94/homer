@@ -1,0 +1,7 @@
+{
+  "name": "homer-proxy",
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "installCommand": "",
+  "nodeVersion": "22"
+}
