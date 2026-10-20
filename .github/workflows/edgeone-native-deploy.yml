@@ -1,0 +1,33 @@
+name: Deploy EdgeOne Homer native
+on:
+  push:
+    branches: [custom/live]
+    paths:
+      - 'edgeone-native/**'
+      - 'static/**'
+      - '.github/workflows/edgeone-native-deploy.yml'
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install EdgeOne CLI
+        run: npm i -g edgeone@latest
+      - name: Pack native + static prefix
+        run: |
+          set -euo pipefail
+          PREFIX='__homer_static__/hs_a8f3c91e2b7d4e6f'
+          rm -rf /tmp/homer-native-pack
+          mkdir -p /tmp/homer-native-pack
+          cp -a edgeone-native/. /tmp/homer-native-pack/
+          mkdir -p "/tmp/homer-native-pack/${PREFIX}"
+          cp -a static/. "/tmp/homer-native-pack/${PREFIX}/"
+      - name: Deploy
+        working-directory: /tmp/homer-native-pack
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: edgeone makers deploy . -n homer-native -t "$EDGEONE_API_TOKEN" -e production
