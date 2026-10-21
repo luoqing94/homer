@@ -84,3 +84,8 @@ services:
         icon: "fas fa-fire"
         url: "https://aihot.news/"
         target: "_blank"
+      - name: "NewsNow"
+        subtitle: "实时热榜聚合"
+        icon: "fas fa-rss"
+        url: "https://newsnow.busiyi.world"
+        target: "_blank"
