@@ -76,3 +76,11 @@ services:
         logo: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/excalidraw.png"
         url: "https://excalidraw.CHANGE_ME.example.com"
         target: "_blank"
+  - name: "资讯"
+    icon: "fas fa-newspaper"
+    items:
+      - name: "AI Hot News"
+        subtitle: "AI 热点资讯"
+        icon: "fas fa-fire"
+        url: "https://aihot.news/"
+        target: "_blank"
