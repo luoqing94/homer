@@ -1,4 +1,24 @@
-/* Align header title with logo (default was margin-top: -12px) */
+/* Vertically center header logo + title */
+body #bighead .first-line .container {
+  display: flex;
+  align-items: center;
+}
+
+body #bighead .first-line .logo {
+  float: none;
+  flex-shrink: 0;
+}
+
 body #bighead .first-line h1 {
   margin-top: 0;
+  margin-bottom: 0;
+}
+
+body #bighead .dashboard-title {
+  padding-top: 0;
+}
+
+/* Empty subtitle should not reserve a line above the title */
+body #bighead .first-line .headline:empty {
+  display: none;
 }
