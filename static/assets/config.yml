@@ -57,7 +57,7 @@ services:
     items:
       - name: "OpenList"
         subtitle: "网盘聚合"
-        logo: "https://cdn.oplist.org/gh/OpenListTeam/Logo@main/logo.png"
+        logo: "icons/openlist.png"
         url: "https://openlist.CHANGE_ME.example.com"
         target: "_blank"
   - name: "影音"
