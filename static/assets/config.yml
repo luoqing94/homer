@@ -8,6 +8,8 @@ header: true
 footer: false
 
 theme: default
+stylesheet:
+  - "assets/custom.css"
 colors:
   light:
     highlight-primary: "#3367d6"
