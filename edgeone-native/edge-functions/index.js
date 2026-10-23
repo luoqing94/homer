@@ -4,6 +4,11 @@ const COOKIE_NAME = 'homer_gate';
 const OTP_COOKIE = 'homer_otp';
 const CONFIG_HOST_PLACEHOLDER = 'CHANGE_ME.example.com';
 
+const INLINE_INDEX_HTML = "__HOMER_INLINE_INDEX_HTML__";
+const INLINE_CONFIG_YML = "__HOMER_INLINE_CONFIG_YML__";
+const INLINE_INDEX_ETAG = "__HOMER_INLINE_INDEX_ETAG__";
+const INLINE_CONFIG_ETAG = "__HOMER_INLINE_CONFIG_ETAG__";
+
 function readEnv(env, key, fallback) {
   const fromCtx = env && env[key];
   const fromProc = typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
@@ -43,12 +48,24 @@ function runtimeConfig(env) {
 }
 
 function isConfigYmlPath(path) {
-  return /\/assets\/config(-demo)?\.ya?ml$/i.test(path);
+  return /^\/(?:assets\/)?config(-demo)?\.ya?ml$/i.test(path);
 }
 
 function rewriteConfigHosts(text, publicZone) {
   if (!publicZone) return text;
   return text.split(CONFIG_HOST_PLACEHOLDER).join(publicZone);
+}
+
+function stripWeak(tag) {
+  return String(tag || '').trim().replace(/^W\//i, '');
+}
+
+function ifNoneMatchMatches(ifNoneMatch, etag) {
+  if (!ifNoneMatch || !etag) return false;
+  const raw = String(ifNoneMatch).trim();
+  if (raw === '*') return true;
+  const target = stripWeak(etag);
+  return raw.split(',').some((part) => stripWeak(part) === target);
 }
 
 function b64url(buf) {
@@ -231,68 +248,66 @@ const LOGOUT_SNIPPET = `<a href="/__auth/logout" id="homer-gate-logout" data-tur
 })();
 </script>`;
 
-function copyUpstreamHeaders(upstream) {
-  const out = new Headers();
-  for (const [k, v] of upstream.headers) {
-    const lk = k.toLowerCase();
-    if (lk === 'transfer-encoding' || lk === 'content-encoding' || lk === 'content-length') continue;
-    out.append(k, v);
+function renderAuthenticatedIndexHtml() {
+  let html = INLINE_INDEX_HTML;
+  if (!html.includes('homer-gate-logout')) {
+    if (html.includes('</body>')) html = html.replace('</body>', LOGOUT_SNIPPET + '</body>');
+    else html += LOGOUT_SNIPPET;
   }
-  out.set('cache-control', 'private, no-store');
-  out.set('vary', 'Cookie');
-  out.set('x-homer-origin', 'edgeone-native');
-  return out;
+  return html;
 }
 
-async function serveAssets(context, request, inbound, cfg) {
-  const prefix = '/__homer_static__/hs_a8f3c91e2b7d4e6f';
-  let path = inbound.pathname;
-  if (path === '/' || path === '') path = '/index.html';
-  const target = new URL(prefix + path, inbound.origin);
-  target.search = inbound.search; // keep eo_token etc if any
-
-  let upstream;
-  try {
-    // Same-host fetch → EdgeOne node cache / static origin (not recursive into this function when path is static-only)
-    upstream = await fetch(target.toString(), {
-      method: 'GET',
-      headers: { 'accept': request.headers.get('accept') || '*/*' },
-      redirect: 'manual',
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: 'static_fetch_failed', detail: String(err) }), {
-      status: 502, headers: { 'content-type': 'application/json; charset=utf-8' },
-    });
-  }
-
-  if (upstream.status === 404 && path !== '/index.html') {
-    const idx = new URL(prefix + '/index.html', inbound.origin);
-    upstream = await fetch(idx.toString(), { method: 'GET', redirect: 'manual' });
-  }
-
-  const out = copyUpstreamHeaders(upstream);
-
-  if (request.method === 'GET' && upstream.status === 200 && isConfigYmlPath(path)) {
-    const text = rewriteConfigHosts(await upstream.text(), cfg.publicZone);
-    if (!out.has('content-type')) out.set('content-type', 'text/yaml; charset=utf-8');
-    return new Response(text, { status: 200, headers: out });
-  }
-
-  const ctype = (upstream.headers.get('content-type') || '').toLowerCase();
-  const wantLogout = request.method === 'GET' && upstream.status === 200 && (
-    ctype.includes('text/html') || path.endsWith('.html') || inbound.pathname === '/'
+function isMissingStaticAssetPath(path) {
+  return (
+    /\.(?:yml|yaml|json|js|css|map|png|jpe?g|gif|svg|ico|woff2?|ttf|webp|txt|xml|webmanifest)$/i.test(path) ||
+    path.startsWith('/assets/') ||
+    path.startsWith('/resources/') ||
+    path.startsWith('/icons/')
   );
-  if (wantLogout) {
-    let html = await upstream.text();
-    if (!html.includes('homer-gate-logout')) {
-      if (html.includes('</body>')) html = html.replace('</body>', LOGOUT_SNIPPET + '</body>');
-      else html += LOGOUT_SNIPPET;
+}
+
+function serveAuthenticated(request, inbound, cfg) {
+  const path = inbound.pathname;
+  const isGetOrHead = request.method === 'GET' || request.method === 'HEAD';
+
+  if (isGetOrHead && isConfigYmlPath(path)) {
+    const headers = {
+      'content-type': 'text/yaml; charset=utf-8',
+      'cache-control': 'private, max-age=300',
+      'etag': INLINE_CONFIG_ETAG,
+      'vary': 'Cookie',
+      'x-homer-origin': 'edgeone-native-inline',
+    };
+    if (ifNoneMatchMatches(request.headers.get('if-none-match'), INLINE_CONFIG_ETAG)) {
+      return new Response(null, { status: 304, headers });
     }
-    out.set('content-type', 'text/html; charset=utf-8');
-    return new Response(html, { status: 200, headers: out });
+    const text = rewriteConfigHosts(INLINE_CONFIG_YML, cfg.publicZone);
+    return new Response(request.method === 'HEAD' ? null : text, { status: 200, headers });
   }
 
-  return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: out });
+  if (isMissingStaticAssetPath(path)) {
+    return new Response('Not Found', {
+      status: 404,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-homer-origin': 'edgeone-native-inline',
+      },
+    });
+  }
+
+  const htmlHeaders = {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'private, no-cache',
+    'etag': INLINE_INDEX_ETAG,
+    'vary': 'Cookie',
+    'x-homer-origin': 'edgeone-native-inline',
+  };
+  if (isGetOrHead && ifNoneMatchMatches(request.headers.get('if-none-match'), INLINE_INDEX_ETAG)) {
+    return new Response(null, { status: 304, headers: htmlHeaders });
+  }
+  const html = renderAuthenticatedIndexHtml();
+  return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers: htmlHeaders });
 }
 
 async function parseForm(request) {
@@ -417,5 +432,5 @@ export default async function onRequest(context) {
     return loginPage('', 'email');
   }
 
-  return serveAssets(context, request, inbound, cfg);
+  return serveAuthenticated(request, inbound, cfg);
 }
