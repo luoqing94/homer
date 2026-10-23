@@ -1,13 +1,16 @@
 {
   "name": "homer-native",
-  "installCommand": "node -e 'const fs=require(\"fs\"),crypto=require(\"crypto\"),src=\"__homer_static__/hs_a8f3c91e2b7d4e6f\";if(fs.existsSync(src)){const html=fs.readFileSync(src+\"/index.html\",\"utf8\"),yml=fs.readFileSync(src+\"/assets/config.yml\",\"utf8\"),sha=s=>\"W/\"+JSON.stringify(crypto.createHash(\"sha256\").update(s).digest(\"hex\").slice(0,16)),he=sha(html),ce=sha(yml);for(const f of[\"edge-functions/[[default]].js\",\"edge-functions/index.js\"]){let c=fs.readFileSync(f,\"utf8\");c=c.replace(\"__HOMER_INLINE_INDEX_HTML__\",()=>JSON.stringify(html).slice(1,-1)).replace(\"__HOMER_INLINE_CONFIG_YML__\",()=>JSON.stringify(yml).slice(1,-1)).replace(\"__HOMER_INLINE_INDEX_ETAG__\",()=>JSON.stringify(he).slice(1,-1)).replace(\"__HOMER_INLINE_CONFIG_ETAG__\",()=>JSON.stringify(ce).slice(1,-1));fs.writeFileSync(f,c,\"utf8\")}}' && cp -a __homer_static__/hs_a8f3c91e2b7d4e6f/. . && rm -rf __homer_static__ index.html assets/config.yml assets/config.yml.dist assets/config-demo.yml.dist assets/additional-page.yml.dist",
+  "installCommand": "if [ -d __homer_static__/hs_a8f3c91e2b7d4e6f ]; then cp -a __homer_static__/hs_a8f3c91e2b7d4e6f/. . && rm -rf __homer_static__; fi && rm -f index.html assets/config.yml assets/config.yml.dist assets/config-demo.yml.dist assets/additional-page.yml.dist",
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "nodeVersion": "22",
   "headers": [
     {
       "source": "/resources/*",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
+          "value": "public,max-age=31536000,immutable"
         }
       ]
     },
@@ -16,7 +19,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -25,7 +28,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -34,7 +37,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -43,7 +46,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -52,7 +55,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -61,7 +64,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -70,7 +73,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -79,7 +82,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
     },
@@ -88,51 +91,9 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400"
+          "value": "public,max-age=86400"
         }
       ]
-    }
-  ],
-  "caches": [
-    {
-      "source": "/resources/*",
-      "cacheTtl": 31536000
-    },
-    {
-      "source": "/icons/*",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/icons/*",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/themes/*",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/tools/*",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/custom.css",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/manifest.json",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/assets/logo.png",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/logo.png",
-      "cacheTtl": 86400
-    },
-    {
-      "source": "/registerSW.js",
-      "cacheTtl": 86400
     }
   ]
 }
